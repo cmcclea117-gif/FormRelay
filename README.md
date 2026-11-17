@@ -1,0 +1,75 @@
+# FormRelay
+
+Build forms, share them with staff (or the public), and relay every submission by email. A form is a versioned JSON definition; submissions are stored in SQL Server, emailed to a mailbox, tracked by admins, and available through a read API. Picklists can be filled from other systems with **connectors** (SQL, REST/JSON, CSV).
+
+It runs as a single **Windows service** (ASP.NET Core on Kestrel) with a React UI, and installs, updates and checks itself with one PowerShell script.
+
+## Install in five minutes
+
+1. Download `FormRelay-<version>-win-x64.zip` from [Releases](../../releases) and unzip it.
+2. In an **elevated Windows PowerShell** prompt, in that folder:
+
+   ```powershell
+   .\FormRelay-Setup.ps1 install -SqlServer ".\SQLEXPRESS" -AdminAccount "DOMAIN\you" -WithSamples
+   ```
+
+3. Open the address it prints and sign in with Windows. Done. Email defaults to SMTP; the installer asks for your server.
+
+Later: `C:\Program Files\FormRelay\FormRelay-Setup.ps1 update -Latest`. Something wrong? `... check`. See [docs/install.md](docs/install.md).
+
+You need Windows Server 2016+ / Windows 10+, SQL Server (Express is fine) and a Windows account that can create databases for the install. No .NET runtime or IIS is needed; the release is self-contained.
+
+## What is in the box
+
+| | |
+|---|---|
+| **Form builder** | Drag-and-drop fields, dropdowns from lists, number limits, "show only when" rules, versioned saves, internal or public audience, per-form owners. |
+| **Email** | Submissions queue in an outbox and a background sender delivers them (up to 5 tries). **SMTP** by default; **Microsoft Graph** (app-only, certificate) as an option. |
+| **Connectors** | Pull picklist choices from a SQL query, a REST/JSON endpoint or a CSV file, on a schedule or on demand. See [docs/connectors.md](docs/connectors.md). |
+| **Sign-in** | Windows (Negotiate). Users and roles live in the database. Public forms need no sign-in and are rate limited with a honeypot. |
+| **Self-check** | `FormRelay-Setup.ps1 check` and `GET /api/diagnostics` report what is wrong without changing anything. |
+| **Updates** | One command: backup, swap, migrate, health check, automatic rollback if the new version does not come up. |
+
+## Layout
+
+```
+src/FormRelay.Api/    ASP.NET Core minimal API (Dapper + SQL Server); serves the built UI from wwwroot
+  Connectors/         connector fetch + scheduler
+  Email/              SMTP and Graph senders, the outbox worker
+  SelfCheck.cs        the read-only diagnostics
+web/                  React + TypeScript (Vite)
+db/                   numbered, idempotent migrations (001..); db/samples = optional sample forms
+installer/            FormRelay-Setup.ps1: install | update | check | rollback | uninstall | graph-cert
+build/package.ps1     builds the release zip (also used by CI)
+tests/                xUnit tests
+.github/workflows/    ci.yml, release.yml, installer-smoke.yml
+docs/                 install, connectors, Graph email request template, troubleshooting
+```
+
+## Develop
+
+```powershell
+# SQL Server running locally, then once:
+sqlcmd -S ".\SQLEXPRESS" -E -C -Q "IF DB_ID('FormRelay') IS NULL CREATE DATABASE FormRelay"
+foreach ($f in Get-ChildItem db\0*.sql) { sqlcmd -S ".\SQLEXPRESS" -E -C -d FormRelay -b -i $f.FullName }
+sqlcmd -S ".\SQLEXPRESS" -E -C -d FormRelay -b -i db\samples\100_sample_forms.sql   # optional
+
+cd web; npm ci; npm run build; cd ..     # builds the UI into src\FormRelay.Api\wwwroot
+dotnet run --project src\FormRelay.Api   # http://localhost:5105 (Development: first sign-in becomes admin)
+```
+
+`npm run dev` in `web/` runs the UI with hot reload and proxies `/api` to the running API. Run `dotnet test` and `npm run lint` before pushing.
+
+Settings are normal ASP.NET configuration keys. On an installed server they live in `C:\ProgramData\FormRelay\config.json` (outside the program folder, so updates never touch them); in development use `dotnet user-secrets` or `appsettings.Development.json`. Do **not** set `ASPNETCORE_ENVIRONMENT` on a server.
+
+### Releasing
+
+Merge to `main` (CI must pass), then tag: `git tag v0.2.0 && git push origin v0.2.0`. The release workflow tests, builds the self-contained zip with a SHA-256 file and publishes a GitHub Release; `update -Latest` picks it up. A tag with a dash (`v0.2.0-beta.1`) is a pre-release and is not offered as "latest".
+
+### Migrations
+
+Add `db/NNN_name.sql` (next number), idempotent, safe to re-run, and **backward compatible** with the previous app version: an update that fails after migrating rolls the *files* back, not the database. Add columns and tables; do not drop or rename in the same release that stops using them.
+
+## Status
+
+Skeleton complete: app, installer, diagnostics, connector backend, CI/CD. Next: connector setup screens in the UI, a diagnostics page in the UI, an "update available" banner. See [docs/roadmap.md](docs/roadmap.md).

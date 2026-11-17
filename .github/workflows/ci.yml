@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  api:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 10.0.x }
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: test-results, path: "**/results.trx" }
+
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer script parses
+        shell: powershell
+        run: |
+          $errs = $null; $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\installer\FormRelay-Setup.ps1", [ref]$tokens, [ref]$errs)
+          if ($errs) { $errs | ForEach-Object { Write-Error "$($_.Message) (line $($_.Extent.StartLineNumber))" }; exit 1 }
+      - name: PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path installer, build -Recurse -Severity Error
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }
+      - name: Check mode runs on a machine with no install
+        shell: powershell
+        run: |
+          .\installer\FormRelay-Setup.ps1 check
+          if ($LASTEXITCODE -ne 2) { Write-Error "expected exit code 2 (nothing installed), got $LASTEXITCODE"; exit 1 }
+          exit 0
+  migrations:
+    # Every numbered migration must run cleanly, in order, twice in a row, against a real SQL Server.
+    runs-on: ubuntu-latest
+    services:
+      sql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env: { ACCEPT_EULA: "Y", MSSQL_SA_PASSWORD: "Ci-Passw0rd!x" }
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations and samples twice
+        run: |
+          sudo apt-get install -y curl >/dev/null
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/ms.gpg
+          echo "deb [signed-by=/usr/share/keyrings/ms.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" | sudo tee /etc/apt/sources.list.d/ms.list
+          sudo apt-get update >/dev/null
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 >/dev/null
+          export PATH="$PATH:/opt/mssql-tools18/bin"
+          sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -b -Q "CREATE DATABASE FormRelay"
+          for pass in 1 2; do
+            for f in db/0*.sql db/samples/*.sql; do
+              echo "pass $pass: $f"
+              sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -d FormRelay -b -i "$f"
+            done
+          done

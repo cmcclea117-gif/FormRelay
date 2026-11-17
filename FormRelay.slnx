@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FormRelay.Api/FormRelay.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FormRelay.Tests/FormRelay.Tests.csproj" />
+  </Folder>
+</Solution>

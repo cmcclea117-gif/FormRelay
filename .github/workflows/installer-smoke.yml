@@ -1,0 +1,49 @@
+name: Installer smoke test (manual)
+
+# Best-effort end-to-end test: build a package, install it as a real Windows service on a hosted runner,
+# run `check`, then update over it. Needs a SQL Server the runner can reach; set the SQL_SERVER repo variable
+# (for example a SQL Server Express started in an earlier step, or a hosted instance). Not part of required CI.
+on:
+  workflow_dispatch:
+    inputs:
+      sql_server:
+        description: "SQL Server to use (name or name\\instance)"
+        default: ".\\SQLEXPRESS"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 10.0.x }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Package 0.0.1 and 0.0.2
+        shell: powershell
+        run: |
+          .\build\package.ps1 -Version 0.0.1
+          .\build\package.ps1 -Version 0.0.2 -SkipWeb
+      - name: Install 0.0.1
+        shell: powershell
+        run: |
+          Expand-Archive artifacts\FormRelay-0.0.1-win-x64.zip $env:RUNNER_TEMP\pkg1
+          & $env:RUNNER_TEMP\pkg1\FormRelay-Setup.ps1 install -NonInteractive -SqlServer "${{ inputs.sql_server }}" -AdminAccount "$env:USERDOMAIN\$env:USERNAME" -WithSamples
+          if ($LASTEXITCODE -ge 2) { exit 1 }
+      - name: Update to 0.0.2
+        shell: powershell
+        run: |
+          & "$env:ProgramFiles\FormRelay\FormRelay-Setup.ps1" update -PackagePath artifacts\FormRelay-0.0.2-win-x64.zip -NonInteractive
+          if ($LASTEXITCODE -ge 2) { exit 1 }
+      - name: Check
+        shell: powershell
+        run: |
+          & "$env:ProgramFiles\FormRelay\FormRelay-Setup.ps1" check
+          if ($LASTEXITCODE -ge 2) { exit 1 }
+      - name: Service log on failure
+        if: failure()
+        shell: powershell
+        run: Get-EventLog -LogName Application -Newest 40 -ErrorAction SilentlyContinue | Format-List TimeGenerated, Source, Message
