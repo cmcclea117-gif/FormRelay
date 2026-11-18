@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
       - run: npm ci
@@ -23,7 +23,7 @@ jobs:
   api:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with: { dotnet-version: 10.0.x }
       - run: dotnet restore
@@ -36,7 +36,7 @@ jobs:
   installer:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Installer script parses
         shell: powershell
         run: |
@@ -68,7 +68,7 @@ jobs:
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -Q 'SELECT 1'"
           --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Apply migrations and samples twice
         run: |
           cid=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest | head -1)
