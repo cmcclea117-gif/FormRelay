@@ -1,6 +1,21 @@
 # FormRelay
 
-Build forms, share them with staff (or the public), and relay every submission by email. A form is a versioned JSON definition; submissions are stored in SQL Server, emailed to a mailbox, tracked by admins, and available through a read API. Picklists can be filled from other systems with **connectors** (SQL, REST/JSON, CSV).
+**An all-in-one for collecting form submissions and getting them where they need to go, on your own server.**
+
+> ### Why FormRelay?
+> FormRelay is meant to be an all-in-one for collecting form submissions and getting them where they need to go. Build a form, share it with your staff or with the public, and every submission is stored, emailed to the people who need it, and tracked through to done. Admins can see what came in, who has it, and whether the email actually went out. Picklists can pull their choices from your other systems, so people choose instead of typing.
+>
+> It's built for organizations that want to run this themselves: one Windows server, SQL Server, no per-user fees, and no cloud account required. Your forms and your data stay on your own machines. It's open source (Apache-2.0), and it's free to use, change and share.
+
+<p>
+<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+<a href="https://github.com/cmcclea117-gif/FormRelay/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cmcclea117-gif/FormRelay/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://github.com/cmcclea117-gif/FormRelay/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/cmcclea117-gif/FormRelay"></a>
+</p>
+
+**Build** forms in a drag-and-drop builder, **share** them internally (Windows sign-in) or publicly, **relay** every submission by email, **track** it to done, and **monitor** the whole thing with a built-in self-check.
+
+A form is a versioned JSON definition; submissions are stored in SQL Server, emailed to a mailbox, tracked by admins, and available through a read API. Picklists can be filled from other systems with **connectors** (SQL, REST/JSON, CSV).
 
 It runs as a single **Windows service** (ASP.NET Core on Kestrel) with a React UI, and installs, updates and checks itself with one PowerShell script.
 
