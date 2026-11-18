@@ -48,6 +48,16 @@ jobs:
         run: |
           .\tests\installer\Install-Files.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Launcher parses and reaches the installer
+        # cmd parses a whole parenthesized block before running it, so a stray ")" in an echo line breaks the launcher
+        # even when that block would not run. The runner is already elevated, so this takes the "admin" path.
+        shell: powershell
+        run: |
+          $out = (cmd /c 'installer\FormRelay-Setup.cmd check < nul 2>&1') | Out-String
+          $out
+          if ($out -match 'was unexpected') { throw 'FormRelay-Setup.cmd has a syntax error' }
+          if ($out -notmatch 'FormRelay check') { throw 'FormRelay-Setup.cmd did not reach the installer' }
+          exit 0   # the launcher's own exit code (2: nothing installed on a CI runner) is expected
       - name: PSScriptAnalyzer
         shell: powershell
         run: |

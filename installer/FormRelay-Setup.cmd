@@ -14,7 +14,8 @@ if errorlevel 1 (
   echo   Before it changes anything it will show you exactly what it will do and ask you first.
   echo.
   echo   This file is plain text, so you can read it. It also lets the setup script in this folder
-  echo   run (Windows blocks downloaded scripts by default). Source: github.com/cmcclea117-gif/FormRelay
+  echo   run, because Windows blocks downloaded scripts by default. Source: github.com/cmcclea117-gif/FormRelay
+  rem Note: never put a closing parenthesis in an echo line inside one of these blocks, it ends the block early.
   echo.
   choice /c YN /n /m "Continue and ask Windows for permission? [Y/N] "
   if errorlevel 2 exit /b
