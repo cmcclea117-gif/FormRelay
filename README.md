@@ -21,18 +21,14 @@ It runs as a single **Windows service** (ASP.NET Core on Kestrel) with a React U
 
 ## Install in five minutes
 
-1. Download `FormRelay-<version>-win-x64.zip` from [Releases](../../releases) and unzip it.
-2. In an **elevated Windows PowerShell** prompt, in that folder:
+**You need** a Windows computer (Windows 10/11 or Server 2019+) and **SQL Server**. The free **Express** edition is plenty: [download SQL Server Express](https://www.microsoft.com/en-us/sql-server/sql-server-downloads) (choose *Express*, then the **Basic** install, and keep the default instance name `SQLEXPRESS`). No .NET runtime or IIS is needed; FormRelay carries its own.
 
-   ```powershell
-   .\FormRelay-Setup.ps1 install -SqlServer ".\SQLEXPRESS" -AdminAccount "DOMAIN\you" -WithSamples
-   ```
+1. Download `FormRelay-<version>-win-x64.zip` from [Releases](../../releases/latest).
+2. **Right-click the zip → Extract All.** (Windows marks downloaded files as untrusted. The launcher below clears that for you. If you ever run the `.ps1` directly and Windows complains, right-click the zip → Properties → **Unblock** *before* extracting, or run `Get-ChildItem -Recurse | Unblock-File` in the extracted folder.)
+3. **Double-click `FormRelay-Setup.cmd`** and choose **1. Install**. Say yes to the administrator prompt. Press Enter to accept the defaults (SQL Server `.\SQLEXPRESS`, you as the first administrator); it will ask how to send email and you can skip that for now.
+4. Open the address it prints and sign in with Windows. Done.
 
-3. Open the address it prints and sign in with Windows. Done. Email defaults to SMTP; the installer asks for your server.
-
-Later: `C:\Program Files\FormRelay\FormRelay-Setup.ps1 update -Latest`. Something wrong? `... check`. See [docs/install.md](docs/install.md).
-
-You need Windows Server 2016+ / Windows 10+, SQL Server (Express is fine) and a Windows account that can create databases for the install. No .NET runtime or IIS is needed; the release is self-contained.
+Later: `"C:\Program Files\FormRelay\FormRelay-Setup.cmd"` and choose **2. Update**. Something wrong? Choose **3. Check**. Email: `FormRelay-Setup.ps1 test-email -To you@example.com`. All the details, command-line options and troubleshooting are in [docs/install.md](docs/install.md).
 
 ## What is in the box
 

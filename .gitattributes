@@ -1,0 +1,5 @@
+# Batch files need Windows line endings or labels/goto can misbehave.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# PowerShell 5.1 reads scripts with Windows line endings reliably.
+*.ps1 text eol=crlf

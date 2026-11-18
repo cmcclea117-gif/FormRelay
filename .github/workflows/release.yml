@@ -35,4 +35,4 @@ jobs:
           flags=""
           case "$TAG" in *-*) flags="--prerelease" ;; esac
           gh release create "$TAG" artifacts/FormRelay-*-win-x64.zip artifacts/FormRelay-*-win-x64.zip.sha256 \
-            --title "FormRelay $TAG" --generate-notes $flags
+            --title "FormRelay $TAG" --notes-file .github/release-notes.md --generate-notes $flags

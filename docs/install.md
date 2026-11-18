@@ -1,6 +1,29 @@
 # Installing, updating and checking FormRelay
 
-All of it is one script: `FormRelay-Setup.ps1`. Run it from an **elevated Windows PowerShell** (not PowerShell 7; the script hops over by itself if you start it there).
+All of it is one script, `FormRelay-Setup.ps1`, plus a double-click launcher, `FormRelay-Setup.cmd`, for people who would rather not open PowerShell.
+
+## Before you start
+
+| You need | Notes |
+|---|---|
+| Windows 10/11 or Windows Server 2019+ | Anything that can run SQL Server 2022/2025 Express. |
+| **SQL Server** | The free **Express** edition is enough for small and medium use (10 GB per database on 2022, 50 GB on 2025). [Download SQL Server Express](https://www.microsoft.com/en-us/sql-server/sql-server-downloads) (always the current release); choose *Express*, then **Basic**. Basic keeps the instance name `SQLEXPRESS`, so the installer's default `.\SQLEXPRESS` just works. SQL Server Management Studio is optional. |
+| An administrator account | To install the service and create the database. Basic install makes the local Administrators group a SQL sysadmin. |
+| (Optional) a way to send email | See [Email](#email-smtp) below. You can skip it and add it later. |
+
+## Starting the installer
+
+**Easiest: the launcher.** Extract the zip (right-click → Extract All), double-click **`FormRelay-Setup.cmd`**, and pick Install, Update or Check from the menu. It asks Windows for administrator rights, runs the script without the PowerShell execution-policy block, and clears the "downloaded from the internet" mark from the extracted files. You can also pass a mode to skip the menu: `FormRelay-Setup.cmd update -Latest`.
+
+**From PowerShell.** Open **Windows PowerShell as administrator** (Windows PowerShell 5.1 is built into Windows; if you start PowerShell 7 the script switches to 5.1 by itself). Right-click → "Run with PowerShell" on the `.ps1` will *not* work: it isn't elevated, it passes no options, and downloaded scripts are blocked by the default execution policy. In the extracted folder:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass      # this window only
+Get-ChildItem -Recurse | Unblock-File          # clears the "downloaded" mark
+.\FormRelay-Setup.ps1 install
+```
+
+If Windows says the script "is not digitally signed" or "cannot be loaded", it is one of those two lines. (Right-click the zip → Properties → **Unblock** *before* extracting does the same job.)
 
 ## What an install does
 
@@ -26,6 +49,29 @@ Notes:
 - **HTTPS:** use a certificate from your CA whose name covers the host users type. `-CreateSelfSignedCert` makes a test one (browsers will warn). The installer grants the service account read access to the private key.
 - **Windows sign-in over Kestrel:** works with Kerberos or NTLM. If users reach the site through a DNS alias, register an SPN for it on the service account or they fall back to NTLM.
 - **First administrator:** the account you give becomes admin when it first signs in (`Auth:BootstrapAdmins`). After real admins exist, delete that key from `config.json`.
+
+## Email (SMTP)
+
+FormRelay sends notifications over SMTP. The installer asks how, and fills in the server details for the common cases. You can skip it and add email later by editing the `Smtp` section of `C:\ProgramData\FormRelay\config.json` and running `Restart-Service FormRelay`.
+
+| Choice | Server filled in | What you need |
+|---|---|---|
+| **Skip** | none | Nothing. Forms work and submissions are saved; notification emails wait in the outbox until a server is set. |
+| **Microsoft 365** | `smtp.office365.com`, port 587, TLS | A mailbox with *Authenticated SMTP* enabled. Microsoft is phasing out password-based SMTP in some tenants; if it's refused, use the Graph option below. |
+| **Gmail / Google Workspace** | `smtp.gmail.com`, port 587, TLS | 2-step verification on the account and an [app password](https://myaccount.google.com/apppasswords) (not the normal password). |
+| **Your own mail server** | you enter it | Host, port, whether it uses TLS (port 587 usually yes, 25 usually no), and a user name and password if it needs them. |
+
+Non-interactive: `-SmtpPreset none|microsoft365|gmail|custom`, plus `-SmtpHost`, `-SmtpPort`, `-SmtpUseTls`, `-SmtpUser`, `-SmtpPassword`, `-SmtpFrom`.
+
+**Always test it:**
+
+```powershell
+.\FormRelay-Setup.ps1 test-email -To you@example.com
+```
+
+It sends one message using the settings in `config.json` and, if it fails, says what to look at (wrong password, cannot reach the server, TLS mismatch). The mail password lives in `config.json`, which only administrators, SYSTEM and the service account can read.
+
+To try FormRelay with no real mail account, run a throwaway local mail catcher such as [smtp4dev](https://github.com/rnwood/smtp4dev) and point `Smtp:Host` at `localhost`.
 
 ## Updating
 

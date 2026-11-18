@@ -12,6 +12,7 @@
       rollback   Go back to the previous version's files (the database is not rolled back).
       uninstall  Remove the service, firewall rule and program files. Keeps settings and database unless -RemoveData.
       graph-cert Create a Microsoft Graph sign-in certificate on this server (private key never leaves it).
+      test-email Send a test message with the SMTP settings in config.json, and say plainly what went wrong if it fails.
 
     Where the files come from: a release zip unpacked next to this script (app\, db\, VERSION), a -PackagePath,
     or -Latest to download the newest GitHub release.
@@ -28,7 +29,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('install', 'update', 'check', 'rollback', 'uninstall', 'graph-cert')]
+    [ValidateSet('install', 'update', 'check', 'rollback', 'uninstall', 'graph-cert', 'test-email')]
     [string]$Mode = 'check',
 
     # Where the new version comes from
@@ -48,6 +49,7 @@ param(
     [string]$CertThumbprint,
     [switch]$CreateSelfSignedCert,
     [string]$HostName = [System.Net.Dns]::GetHostEntry('').HostName,
+    [ValidateSet('none', 'microsoft365', 'gmail', 'custom')][string]$SmtpPreset,
     [string]$SmtpHost,
     [int]$SmtpPort = 25,
     [switch]$SmtpUseTls,
@@ -55,6 +57,7 @@ param(
     [string]$SmtpPassword,
     [string]$SmtpFrom,
     [switch]$WithSamples,
+    [string]$To,                       # test-email: where to send it
 
     # Where things live
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'FormRelay'),
@@ -68,6 +71,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ServiceName = 'FormRelay'
+$ScriptBound = $PSBoundParameters   # functions have their own $PSBoundParameters; this is the script's
 
 # SqlClient ships with Windows PowerShell 5.1 only, so hop over if we were started in PowerShell 7.
 if ($PSVersionTable.PSEdition -eq 'Core') {
@@ -291,6 +295,8 @@ function Install-Files([string]$PackageRoot, [string]$Version) {
     Copy-Item (Join-Path $PackageRoot 'app\*') $rel -Recurse -Force
     Copy-Item (Join-Path $PackageRoot 'VERSION') $rel -Force
     Copy-Item $PSCommandPath (Join-Path $InstallDir 'FormRelay-Setup.ps1') -Force   # so "update" is always at hand
+    $launcher = Join-Path $PackageRoot 'FormRelay-Setup.cmd'
+    if (Test-Path $launcher) { Copy-Item $launcher (Join-Path $InstallDir 'FormRelay-Setup.cmd') -Force }
     return $rel
 }
 function Set-DataDirAcl {
@@ -332,6 +338,78 @@ function Grant-CertKeyAccess([System.Security.Cryptography.X509Certificates.X509
     Write-Host "    $Account can read the private key"
 }
 
+# ----- outgoing email (SMTP). Presets fill in the server details for common providers.
+function Read-Secret([string]$Prompt) {
+    if ($NonInteractive) { return $null }
+    $s = Read-Host $Prompt -AsSecureString
+    $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
+    try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
+}
+function Get-SmtpAnswers {
+    if ($SmtpPreset -eq 'none') { return }
+    if (-not $SmtpPreset -and -not $SmtpHost) {
+        if ($NonInteractive) { return }
+        Write-Host ''
+        Write-Host 'Outgoing email (how FormRelay sends the notifications):'
+        Write-Host '  1. Skip for now (forms work fine; add email later)'
+        Write-Host '  2. Microsoft 365 / Office 365'
+        Write-Host '  3. Gmail / Google Workspace'
+        Write-Host '  4. My own mail server'
+        $script:SmtpPreset = switch (Ask 'Choose 1-4' '1') { '2' { 'microsoft365' } '3' { 'gmail' } '4' { 'custom' } default { 'none' } }
+        if ($SmtpPreset -eq 'none') { return }
+    }
+    switch ($SmtpPreset) {
+        'microsoft365' {
+            $script:SmtpHost = 'smtp.office365.com'; $script:SmtpPort = 587; $script:SmtpUseTls = $true
+            Write-Host '    Needs a mailbox with "Authenticated SMTP" enabled. Microsoft is phasing out password-based SMTP in some'
+            Write-Host '    tenants; if sending is refused, use the Graph option instead (docs/install.md).'
+        }
+        'gmail' {
+            $script:SmtpHost = 'smtp.gmail.com'; $script:SmtpPort = 587; $script:SmtpUseTls = $true
+            Write-Host '    Needs 2-step verification on the account and an "app password" (not your normal password).'
+        }
+        default {
+            if (-not $SmtpHost) { $script:SmtpHost = Ask 'Mail server name' '' -Required }
+            if (-not $ScriptBound.ContainsKey('SmtpPort')) { $script:SmtpPort = [int](Ask 'Port' "$SmtpPort") }
+            if (-not $SmtpUseTls -and -not $NonInteractive) { $script:SmtpUseTls = ((Ask 'Encrypt with TLS (STARTTLS)? y/n' 'n') -like 'y*') }
+        }
+    }
+    if (-not $SmtpUser -and -not $NonInteractive) {
+        $script:SmtpUser = Ask 'Mail account user name (blank if the server needs none)' ''
+        if ($SmtpUser -and -not $SmtpPassword) { $script:SmtpPassword = Read-Secret 'Password (typing is hidden)' }
+    }
+    if (-not $SmtpFrom) { $script:SmtpFrom = Ask 'Send email from (address)' $(if ($SmtpUser -like '*@*') { $SmtpUser } else { "formrelay@$env:USERDNSDOMAIN".ToLower() }) }
+    Write-Host "    Email will go through $SmtpHost`:$SmtpPort. After install, send yourself a test: FormRelay-Setup.ps1 test-email -To you@example.com"
+}
+function Invoke-TestEmail {
+    $cfg = Read-Config
+    if (-not $cfg) { throw "No settings file at $(Get-ConfigPath). Install first." }
+    $s = $cfg.Smtp
+    if (-not $s -or -not $s.Host) { throw 'No mail server is set. Add one under "Smtp" in config.json (see docs/install.md), then try again.' }
+    $dest = $To
+    if (-not $dest) { $dest = Ask 'Send the test email to' '' -Required }
+    $from = if ($s.From) { $s.From } else { "formrelay@$env:COMPUTERNAME" }
+    $port = if ($s.Port) { [int]$s.Port } else { 25 }
+    Write-Host "Sending from $from to $dest through $($s.Host):$port (TLS: $([bool]$s.UseTls))..."
+    $client = New-Object System.Net.Mail.SmtpClient($s.Host, $port)
+    $client.EnableSsl = [bool]$s.UseTls
+    $client.Timeout = 20000
+    if ($s.User) { $client.Credentials = New-Object System.Net.NetworkCredential($s.User, $s.Password) }
+    try {
+        $client.Send($from, $dest, 'FormRelay test email', "This is a test from FormRelay on $env:COMPUTERNAME. If you can read it, email is set up correctly.")
+        Write-Host "Sent. Check the inbox of $dest (and its spam folder)." -ForegroundColor Green
+    } catch {
+        $why = $_.Exception.GetBaseException().Message
+        $hint = switch -Regex ($why) {
+            'authentication|5\.7\.|Authentication Required|credentials' { 'The server wants a user name and password it accepts. Check Smtp:User and Smtp:Password. Gmail needs an app password.' }
+            'connect|actively refused|timed out|No such host|resolve' { 'Could not reach the server. Check Smtp:Host and Smtp:Port, and that this computer may connect out on that port.' }
+            'STARTTLS|SSL|TLS|secure' { 'The server and TLS setting disagree. Port 587 normally needs "UseTls": true; port 25 often needs it false.' }
+            default { 'See the message above.' }
+        }
+        throw "Could not send: $why`n$hint"
+    } finally { $client.Dispose() }
+}
+
 # ----- settings file
 function New-RandomKey { $b = New-Object byte[] 24; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b).TrimEnd('=').Replace('+', 'a').Replace('/', 'b') }
 function Write-Config {
@@ -365,7 +443,7 @@ function Import-InstallAnswers {
     if (-not $ConfigFile) { return }
     $a = Get-Content $ConfigFile -Raw | ConvertFrom-Json
     foreach ($p in $a.PSObject.Properties) {
-        if (-not $PSBoundParameters.ContainsKey($p.Name) -and (Get-Variable -Name $p.Name -Scope Script -ErrorAction SilentlyContinue)) {
+        if (-not $ScriptBound.ContainsKey($p.Name) -and (Get-Variable -Name $p.Name -Scope Script -ErrorAction SilentlyContinue)) {
             Set-Variable -Name $p.Name -Value $p.Value -Scope Script
         }
     }
@@ -376,16 +454,13 @@ function Get-InstallAnswers {
     $script:Database = Ask 'Database name' $Database -Required
     $me = "$env:USERDOMAIN\$env:USERNAME"
     $script:AdminAccount = Ask 'First administrator (DOMAIN\user, becomes admin on first sign-in)' $(if ($AdminAccount) { $AdminAccount } else { $me }) -Required
-    if (-not $SmtpHost) { $script:SmtpHost = Ask 'SMTP server for outgoing email (blank = set up later)' '' }
-    if ($SmtpHost) {
-        if (-not $SmtpFrom) { $script:SmtpFrom = Ask 'Send email from (address)' "formrelay@$env:USERDNSDOMAIN".ToLower() }
-    }
+    Get-SmtpAnswers
     if ($CreateSelfSignedCert -and -not $CertThumbprint) {
         $c = New-SelfSignedCertificate -DnsName $HostName -CertStoreLocation Cert:\LocalMachine\My -NotAfter (Get-Date).AddYears(2)
         $script:CertThumbprint = $c.Thumbprint
         Write-Host "    created a self-signed certificate for $HostName ($($c.Thumbprint)). Browsers will warn about it; use a real one for production."
     }
-    if ($CertThumbprint -and -not $PSBoundParameters.ContainsKey('HttpPort')) { $script:HttpPort = 80 }
+    if ($CertThumbprint -and -not $ScriptBound.ContainsKey('HttpPort')) { $script:HttpPort = 80 }
 }
 
 # ------------------------------------------------------------------------------------------ check
@@ -606,6 +681,7 @@ try {
         'rollback'   { Invoke-Rollback }
         'uninstall'  { Invoke-Uninstall }
         'graph-cert' { Invoke-GraphCert }
+        'test-email' { Invoke-TestEmail }
     }
 } catch {
     Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red

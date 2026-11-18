@@ -38,15 +38,23 @@ Remove-Item (Join-Path $stage 'app\web.config') -ErrorAction SilentlyContinue   
 Write-Host '==> assemble' -ForegroundColor Cyan
 Copy-Item (Join-Path $root 'db') (Join-Path $stage 'db') -Recurse
 Copy-Item (Join-Path $root 'installer\FormRelay-Setup.ps1') $stage
+Copy-Item (Join-Path $root 'installer\FormRelay-Setup.cmd') $stage
 Set-Content -Path (Join-Path $stage 'VERSION') -Value $Version -NoNewline
 @"
 FormRelay $Version
 
-Install (from an elevated Windows PowerShell prompt, in this folder):
+You need SQL Server (the free Express edition is fine):
+  https://www.microsoft.com/en-us/sql-server/sql-server-downloads
+
+Install: extract this zip, then double-click FormRelay-Setup.cmd and choose 1.
+(It asks for administrator permission and handles the "downloaded from the internet" block for you.)
+
+Or from an elevated Windows PowerShell prompt in this folder:
   .\FormRelay-Setup.ps1 install -SqlServer ".\SQLEXPRESS" -AdminAccount "DOMAIN\you"
 
-Check an existing install (changes nothing):   .\FormRelay-Setup.ps1 check
-Update later:                                  C:\Program Files\FormRelay\FormRelay-Setup.ps1 update -Latest
+Check an existing install (changes nothing):   FormRelay-Setup.cmd check
+Update later:                                  "C:\Program Files\FormRelay\FormRelay-Setup.cmd" update -Latest
+Test outgoing email:                           .\FormRelay-Setup.ps1 test-email -To you@example.com
 
 Docs: https://github.com/cmcclea117-gif/FormRelay
 "@ | Set-Content (Join-Path $stage 'README.txt')
