@@ -46,7 +46,7 @@ jobs:
       - name: Install-Files regression tests
         shell: powershell
         run: |
-          .	ests\installer\Install-Files.Tests.ps1
+          .\tests\installer\Install-Files.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: PSScriptAnalyzer
         shell: powershell
