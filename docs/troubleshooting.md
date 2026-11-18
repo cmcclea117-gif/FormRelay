@@ -6,6 +6,7 @@ Start with `FormRelay-Setup.ps1 check`. Most real failures in the app this was b
 |---|---|---|
 | `/api/health` returns 500, SQL "error 26" in the log | `ConnectionStrings:Default` missing from `config.json`, so the app used its built-in default | Fix `config.json`, `Restart-Service FormRelay` |
 | Double-clicking `FormRelay-Setup.cmd` flashes a window and nothing happens | The launcher could not ask Windows for administrator rights (fixed in 0.1.2) | Right-click `FormRelay-Setup.cmd` → **Run as administrator**. To see any message, open Command Prompt as administrator and run it from there. |
+| `update` says "Cannot overwrite the item ... FormRelay-Setup.ps1 with itself" and rolls back | You are updating *from* 0.1.0 or 0.1.1, whose installer has this bug | Extract the new release zip and run **its** `FormRelay-Setup.cmd` → **2. Update** once. See [install.md](install.md#updating). |
 | Service won't start | Port taken, bad `config.json` JSON, or the service account can't read the folder | Event Viewer > Windows Logs > Application, source `FormRelay` or `.NET Runtime` |
 | Sign-in prompt loops / 401 | Browser doesn't consider the site "intranet", or host reached through an alias without an SPN | Add the site to the Local intranet zone; register the SPN |
 | Users get "no access" | They are not in the app's user list | An admin adds them on the Users page |

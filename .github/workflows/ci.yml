@@ -43,6 +43,11 @@ jobs:
           $errs = $null; $tokens = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\installer\FormRelay-Setup.ps1", [ref]$tokens, [ref]$errs)
           if ($errs) { $errs | ForEach-Object { Write-Error "$($_.Message) (line $($_.Extent.StartLineNumber))" }; exit 1 }
+      - name: Install-Files regression tests
+        shell: powershell
+        run: |
+          .	ests\installer\Install-Files.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: PSScriptAnalyzer
         shell: powershell
         run: |
