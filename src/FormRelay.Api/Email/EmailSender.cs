@@ -28,7 +28,7 @@ public class SmtpEmailSender(IConfiguration config) : IEmailSender
         await client.ConnectAsync(s["Host"] ?? "localhost", s.GetValue("Port", 25), tls, ct);
         if (!string.IsNullOrEmpty(s["User"]))
             await client.AuthenticateAsync(s["User"], s["Password"], ct);
-        await client.SendAsync(message, ct);
+        await client.SendAsync(new SmtpSendRequest(message), ct);   // MailKit 5 sends a request object, not a bare message
         await client.DisconnectAsync(true, ct);
     }
 }
