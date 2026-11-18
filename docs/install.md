@@ -54,7 +54,9 @@ Notes:
 
 ## Email (SMTP)
 
-FormRelay sends notifications over SMTP. The installer asks how, and fills in the server details for the common cases. You can skip it and add email later by editing the `Smtp` section of `C:\ProgramData\FormRelay\config.json` and running `Restart-Service FormRelay`.
+FormRelay sends notifications over SMTP. The installer asks how, and fills in the server details for the common cases. You can skip it and set it up later, or change it at any time, with **`set-email`**: in the launcher choose **4. Set up or change outgoing email**, or run `FormRelay-Setup.ps1 set-email`. It asks the same questions, shows what it will change, keeps a backup of `config.json`, changes only the email part, restarts the service and offers to send a test message. Notifications that were waiting while email was off go out as soon as it is on. Choosing *Turn email off* removes the settings again (notifications are held, nothing is lost).
+
+By hand, if you prefer: edit the `Smtp` section of `C:\ProgramData\FormRelay\config.json` and run `Restart-Service FormRelay`.
 
 | Choice | Server filled in | What you need |
 |---|---|---|
