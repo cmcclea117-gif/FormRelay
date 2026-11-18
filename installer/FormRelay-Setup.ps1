@@ -46,6 +46,9 @@ param(
     [string]$ServiceAccount = 'NT SERVICE\FormRelay',
     [int]$HttpPort = 8080,
     [int]$HttpsPort = 443,
+    [string[]]$AllowFrom = @('LocalSubnet'),   # who may connect: LocalSubnet, or addresses/ranges like 10.0.0.0/8
+    [switch]$AllowAnyNetwork,                  # open to any address on any network (not recommended)
+    [switch]$LocalOnly,                        # listen on this computer only (127.0.0.1); no firewall rule at all
     [string]$CertThumbprint,
     [switch]$CreateSelfSignedCert,
     [string]$HostName = [System.Net.Dns]::GetHostEntry('').HostName,
@@ -64,6 +67,7 @@ param(
     [string]$DataDir = (Join-Path $env:ProgramData 'FormRelay'),
 
     [switch]$NonInteractive,
+    [switch]$Yes,                      # skip the "Continue?" question (the plan is still printed)
     [switch]$Force,
     [switch]$RemoveData,
     [switch]$SkipDatabaseBackup
@@ -318,13 +322,35 @@ function Install-Service([string]$ReleaseDir) {
     & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/30000/restart/60000 | Out-Null
     & sc.exe config $ServiceName start= delayed-auto | Out-Null
 }
+function Get-FirewallScope {
+    if ($LocalOnly) { return @{ Profile = 'Any'; Remote = @('Any'); Text = 'no firewall port is opened; FormRelay listens on this computer only' } }
+    if ($AllowAnyNetwork) { return @{ Profile = 'Any'; Remote = @('Any'); Text = 'ANY address on ANY network (not recommended)' } }
+    return @{ Profile = 'Domain,Private'; Remote = $AllowFrom; Text = "only $($AllowFrom -join ', ') on Domain and Private networks (never Public networks)" }
+}
 function Set-Firewall {
     Step 'Firewall'
     $ports = @($HttpPort)
     if ($CertThumbprint) { $ports += $HttpsPort }
+    $scope = Get-FirewallScope
     Get-NetFirewallRule -DisplayName 'FormRelay' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    New-NetFirewallRule -DisplayName 'FormRelay' -Direction Inbound -Protocol TCP -LocalPort $ports -Action Allow | Out-Null
-    Write-Host "    inbound TCP $($ports -join ', ')"
+    if ($LocalOnly) { Write-Host "    $($scope.Text)"; return }
+    New-NetFirewallRule -DisplayName 'FormRelay' -Direction Inbound -Protocol TCP -LocalPort $ports -Action Allow `
+        -Profile $scope.Profile -RemoteAddress $scope.Remote | Out-Null
+    Write-Host "    inbound TCP $($ports -join ', '): $($scope.Text)"
+    if ($AllowAnyNetwork) { Write-Warning 'FormRelay is now reachable from any address. Put it behind HTTPS and a firewall or reverse proxy before anyone outside your network can reach this PC.' }
+    $pub = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.NetworkCategory -eq 'Public' -and $_.IPv4Connectivity -ne 'Disconnected' }
+    if ($pub -and -not $AllowAnyNetwork) {
+        Write-Host "    Note: this PC's network '$(@($pub)[0].Name)' is classed Public, so other computers cannot reach FormRelay yet." -ForegroundColor Yellow
+        Write-Host '    If it is a trusted network, change it to Private (Settings > Network & internet), then it will work.' -ForegroundColor Yellow
+    }
+}
+function Confirm-Plan([string]$Title, [string[]]$Lines) {
+    Write-Host ''
+    Write-Host $Title -ForegroundColor Cyan
+    foreach ($l in $Lines) { Write-Host "  - $l" }
+    Write-Host ''
+    if ($Yes -or $NonInteractive) { return }
+    if ((Read-Host 'Continue? [y/N]') -notlike 'y*') { Write-Host 'Cancelled. Nothing was changed.'; exit 0 }
 }
 function Grant-CertKeyAccess([System.Security.Cryptography.X509Certificates.X509Certificate2]$Cert, [string]$Account) {
     $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Cert)
@@ -420,12 +446,13 @@ function Write-Config {
     }
     if (Test-Path $cfgPath) { Copy-Item $cfgPath (Join-Path $DataDir ("backups\config-{0:yyyyMMdd-HHmmss}.json" -f (Get-Date))) }
     $conn = "Server=$SqlServer;Database=$Database;Integrated Security=true;TrustServerCertificate=true"
-    $kestrel = @{ Http = @{ Url = "http://0.0.0.0:$HttpPort" } }
+    $bind = if ($LocalOnly) { '127.0.0.1' } else { '0.0.0.0' }
+    $kestrel = @{ Http = @{ Url = "http://${bind}:$HttpPort" } }
     if ($CertThumbprint) {
         $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object Thumbprint -eq ($CertThumbprint -replace '\s', '').ToUpper() | Select-Object -First 1
         if (-not $cert) { throw "Certificate $CertThumbprint is not in LocalMachine\My" }
         $subject = $cert.Subject
-        $kestrel.Https = @{ Url = "https://0.0.0.0:$HttpsPort"; Certificate = @{ Subject = $subject; Store = 'My'; Location = 'LocalMachine'; AllowInvalid = $true } }
+        $kestrel.Https = @{ Url = "https://${bind}:$HttpsPort"; Certificate = @{ Subject = $subject; Store = 'My'; Location = 'LocalMachine'; AllowInvalid = $true } }
         Grant-CertKeyAccess $cert $ServiceAccount
     }
     $cfg = [ordered]@{
@@ -519,11 +546,22 @@ function Invoke-Check {
     } catch { $open = $false } finally { $tcp.Close() }
     Add-Check "Port $port" ($(if ($open) { 'ok' } else { 'fail' })) ($(if ($open) { 'accepting connections' } else { 'nothing answers (service stopped, or another program owns the port)' }))
     $fw = Get-NetFirewallRule -DisplayName 'FormRelay' -ErrorAction SilentlyContinue
-    Add-Check 'Firewall rule' ($(if ($fw) { 'ok' } else { 'warn' })) ($(if ($fw) { 'FormRelay inbound rule present' } else { 'no inbound rule; other computers may not reach the site' }))
+    if ("$($cfg.Kestrel.Endpoints.Http.Url)" -like 'http://127.*') { Add-Check 'Firewall rule' 'ok' 'FormRelay listens on this computer only (-LocalOnly), so no firewall port is open' }
+    elseif (-not $fw) { Add-Check 'Firewall rule' 'warn' 'no inbound rule; other computers cannot reach the site (fine if only this PC uses it)' }
+    else {
+        $remote = @(($fw | Get-NetFirewallAddressFilter).RemoteAddress)
+        $profiles = "$($fw.Profile)"
+        $wide = ($remote -contains 'Any') -or ($remote -contains '*')
+        $pub = ($profiles -match 'Any|Public')
+        if ($wide -or $pub) {
+            Add-Check 'Firewall rule' 'warn' ('open to ' + $(if ($wide) { 'any address' } else { 'the local network' }) + $(if ($pub) { ', including Public networks (cafe or guest Wi-Fi)' } else { '' }) + '. Internal-only is the safe default: re-run install -Force, or see docs/security.md.')
+        } else { Add-Check 'Firewall rule' 'ok' ("allows only $($remote -join ', ') on $profiles networks") }
+    }
+    if (-not $cfg.Kestrel.Endpoints.Https) { Add-Check 'Encryption' 'ok' 'plain HTTP: fine on a trusted internal network. Add HTTPS (docs/install.md) before anyone outside it uses this.' }
 
     try {
         $h = Test-Health 5
-        Add-Check 'Health endpoint' 'ok' "status $($h.status), db $($h.db), app $($h.version)"
+        Add-Check 'Health endpoint' 'ok' "status $($h.status)"
         try {
             $d = Invoke-RestMethod -Uri ((Get-BaseUrl) + '/api/diagnostics') -UseDefaultCredentials -TimeoutSec 20 -UseBasicParsing
             foreach ($c in $d) { if ($c.name -ne 'Version') { Add-Check "app: $($c.name)" $c.status $c.detail } }
@@ -553,6 +591,16 @@ function Invoke-Install {
     $ver = (Get-Content (Join-Path $pkg 'VERSION') -Raw).Trim()
     Get-InstallAnswers
 
+    $ports = @($HttpPort); if ($CertThumbprint) { $ports += $HttpsPort }
+    Confirm-Plan "FormRelay $ver will make these changes on $env:COMPUTERNAME:" @(
+        "Copy the program to $InstallDir",
+        "Create a Windows service 'FormRelay' that runs as $ServiceAccount. That account has no administrator rights: it can only read the program and its own settings.",
+        "Create the database '$Database' on $SqlServer, and give $(Get-DbPrincipal) read and write access to that database only",
+        "Save settings (including any passwords) in $DataDir, readable only by Administrators, SYSTEM and the service",
+        $(if ($LocalOnly) { 'Open no firewall port: FormRelay will listen on this computer only (127.0.0.1)' } else { "Open Windows Firewall for TCP $($ports -join ', '): $((Get-FirewallScope).Text)" }),
+        "It sends nothing anywhere. It only reaches the internet if you later choose 'update from GitHub', or set up outgoing email"
+    )
+
     Step "Installing FormRelay $ver"
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     $rel = Install-Files $pkg $ver
@@ -568,10 +616,11 @@ function Invoke-Install {
     Step 'Starting the service'
     Start-Service $ServiceName
     $h = Test-Health 90
-    Write-Host "    healthy: db $($h.db), app $($h.version)" -ForegroundColor Green
+    Write-Host '    healthy' -ForegroundColor Green
     Write-Host ''
     $code = Invoke-Check
     Write-Host ''
+    if ($LocalOnly) { $HostName = 'localhost' }
     $base = if ($CertThumbprint) { "https://$HostName" + $(if ($HttpsPort -ne 443) { ":$HttpsPort" }) } else { "http://$HostName" + $(if ($HttpPort -ne 80) { ":$HttpPort" }) }
     Write-Host "FormRelay is running at $base" -ForegroundColor Green
     Write-Host "Sign in as $AdminAccount to become the first administrator, then remove Auth:BootstrapAdmins from $(Get-ConfigPath)."
@@ -594,6 +643,12 @@ function Invoke-Update {
     $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder($cfg.ConnectionStrings.Default)
     $script:SqlServer = $b.DataSource; $script:Database = $b.InitialCatalog
 
+    Confirm-Plan "FormRelay will be updated $old -> ${new}:" @(
+        'Back up the database (copy-only) and your settings first',
+        'Stop the service for a moment, swap in the new program files, apply any new database migrations, and start it again',
+        'If the new version does not come up healthy, switch back to the old files automatically',
+        'Your settings and data are kept'
+    )
     Step "Updating FormRelay $old -> $new"
     Backup-Database
     Copy-Item (Get-ConfigPath) (Join-Path $DataDir ("backups\config-{0:yyyyMMdd-HHmmss}.json" -f (Get-Date))) -Force
@@ -610,7 +665,7 @@ function Invoke-Update {
         Step 'Starting the service'
         Start-Service $ServiceName
         $h = Test-Health 90
-        Write-Host "    healthy: app $($h.version)" -ForegroundColor Green
+        Write-Host "    healthy (now running $(Get-CurrentVersion))" -ForegroundColor Green
     } catch {
         Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
         Step "Rolling back to $old"
@@ -641,11 +696,16 @@ function Invoke-Rollback {
     Set-Junction (Join-Path $InstallDir 'current') $target.FullName
     Start-Service $ServiceName
     $h = Test-Health 90
-    Write-Host "Now running $($h.version). The database was not changed." -ForegroundColor Green
+    Write-Host "Now running $(Get-CurrentVersion). The database was not changed." -ForegroundColor Green
 }
 
 function Invoke-Uninstall {
     if (-not (Test-Admin)) { throw 'Run this from an elevated (Run as administrator) prompt.' }
+    Confirm-Plan 'FormRelay will be removed from this computer:' @(
+        'Stop and delete the Windows service and its firewall rule',
+        "Delete the program files in $InstallDir",
+        $(if ($RemoveData) { "ALSO DELETE your settings in $DataDir (the database is kept)" } else { "Keep your settings in $DataDir and the database" })
+    )
     Step 'Removing FormRelay'
     if (Get-Service $ServiceName -ErrorAction SilentlyContinue) {
         Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue

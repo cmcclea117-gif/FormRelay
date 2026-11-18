@@ -33,8 +33,10 @@ If Windows says the script "is not digitally signed" or "cannot be loaded", it i
 | Service | Windows service `FormRelay`, automatic (delayed) start, restarts itself after a crash. Runs as the virtual account `NT SERVICE\FormRelay` unless you pass `-ServiceAccount` (for example a gMSA like `CONTOSO\svc-formrelay$`). |
 | Database | Creates the database if missing, a login for the service account, and gives it `db_datareader` + `db_datawriter` on that database only. Then applies the numbered migrations and records them in `dbo.SchemaVersion`. |
 | Settings | Writes `C:\ProgramData\FormRelay\config.json` (readable by administrators, SYSTEM and the service account only). Never overwritten by an update. |
-| Network | Kestrel listens on `-HttpPort` (default 8080). With `-CertThumbprint` it also serves HTTPS on `-HttpsPort` (default 443) and HTTP moves to 80. A Windows Firewall rule is added. |
+| Network | Kestrel listens on `-HttpPort` (default 8080). With `-CertThumbprint` it also serves HTTPS on `-HttpsPort` (default 443) and HTTP moves to 80. A Windows Firewall rule is added that allows **only your local subnet on Domain and Private networks** (never Public networks, never the internet). Narrow or widen it with `-LocalOnly`, `-AllowFrom`, `-AllowAnyNetwork`: see [security.md](security.md). |
 | Verify | Waits for `GET /api/health`, then runs the same checks as `check`. |
+
+Before it changes anything the installer **prints this plan and asks "Continue? [y/N]"** (Enter cancels; `-Yes` skips the question). See [security.md](security.md) for exactly what it changes and why it needs administrator rights.
 
 ```powershell
 .\FormRelay-Setup.ps1 install -SqlServer "SQL01" -Database FormRelay -AdminAccount "CONTOSO\jsmith" `
