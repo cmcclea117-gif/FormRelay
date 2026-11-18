@@ -57,6 +57,7 @@ jobs:
           $out
           if ($out -match 'was unexpected') { throw 'FormRelay-Setup.cmd has a syntax error' }
           if ($out -notmatch 'FormRelay check') { throw 'FormRelay-Setup.cmd did not reach the installer' }
+          exit 0   # the launcher's own exit code (2: nothing installed on a CI runner) is expected
       - name: PSScriptAnalyzer
         shell: powershell
         run: |
