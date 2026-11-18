@@ -75,7 +75,53 @@ Non-interactive: `-SmtpPreset none|microsoft365|gmail|custom`, plus `-SmtpHost`,
 
 It sends one message using the settings in `config.json` and, if it fails, says what to look at (wrong password, cannot reach the server, TLS mismatch). The mail password lives in `config.json`, which only administrators, SYSTEM and the service account can read.
 
-To try FormRelay with no real mail account, run a throwaway local mail catcher such as [smtp4dev](https://github.com/rnwood/smtp4dev) and point `Smtp:Host` at `localhost`.
+To try FormRelay with no real mail account, use a throwaway local mail catcher: see [Trying email without a real mailbox](#trying-email-without-a-real-mailbox-smtp4dev) below.
+
+### Trying email without a real mailbox (smtp4dev)
+
+[smtp4dev](https://github.com/rnwood/smtp4dev) is a free "dummy" mail server. It accepts the messages FormRelay sends and shows them in a web page, and it delivers nothing to the real world, so it is a safe way to see the whole flow (submit a form, get the notification) on a test machine.
+
+**1. Install it** (any one of these):
+
+| How | Command or link | Notes |
+|---|---|---|
+| winget (simplest) | `winget install Rnwood.Smtp4dev` | Open a **new** PowerShell window afterwards. The command it adds is named `Rnwood.Smtp4dev` (not `smtp4dev`). |
+| Docker | `docker run --rm -it -p 5050:80 -p 2525:25 rnwood/smtp4dev` | Web page on http://localhost:5050, mail server on port 2525. Skip step 2 (it is already running). |
+| .NET tool | `dotnet tool install -g Rnwood.Smtp4dev` | Needs the .NET 10 SDK, which a FormRelay machine does not otherwise need. |
+
+**2. Start it** and leave the window open:
+
+```powershell
+Rnwood.Smtp4dev --smtpport=2525 --urls=http://localhost:5050
+```
+
+Port 2525 avoids clashing with anything already on port 25, and `--urls` puts the web page on port 5050 because smtp4dev's default, 5000, is often already taken (the error is "Failed to bind to address http://127.0.0.1:5000: address already in use"). When it prints `Now listening on: http://localhost:5050`, open that address in your browser to see captured messages. Windows may ask to allow changes the first time; if the window closes, run the command again.
+
+If Windows Firewall asks whether to allow smtp4dev on your networks, choose **Cancel** (or untick the boxes). That keeps other computers from reaching it, and FormRelay on the same PC still can, because a PC talking to itself over `localhost` is not blocked.
+
+**3. Point FormRelay at it.** Run `FormRelay-Setup.cmd` and choose **4. Set up or change outgoing email**, then **4. My own mail server** and answer:
+
+| Question | Answer |
+|---|---|
+| Mail server name | `localhost` |
+| Port | `2525` |
+| Encrypt with TLS | `n` |
+| Mail account user name | leave blank (press Enter) |
+| Send email from | `formrelay@example.com` |
+
+Type `y` at the plan, and give any address when it offers to send a test message. The test message should appear in smtp4dev's web page within a few seconds.
+
+**4. Try the real flow.** Put any address in a form's **Email** box in the form builder, submit the form, and the notification appears in smtp4dev within about 5 seconds (the outbox checks that often).
+
+**If something fails**
+
+| Message | Meaning |
+|---|---|
+| "Could not reach the server" | smtp4dev is not running, or it is on a different port. Check its window. |
+| The server wants a user name and password | smtp4dev can be set to require sign-in. Look at its settings (the gear icon in its web page), or run `set-email` again and give it a user name and password. |
+| Messages stop arriving after you closed its window | smtp4dev must stay running. FormRelay retries a failed message a few times with growing delays, then marks it failed. |
+
+When you are done testing, run `set-email` again and choose a real mail server (or *Turn email off*), and close smtp4dev. Do not leave a dummy mail server standing in for a real one.
 
 ## Updating
 
