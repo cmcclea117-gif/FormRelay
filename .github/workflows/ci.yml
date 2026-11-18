@@ -47,7 +47,7 @@ jobs:
         shell: powershell
         run: |
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
-          $r = Invoke-ScriptAnalyzer -Path installer, build -Recurse -Severity Error
+          $r = @('installer', 'build') | ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Recurse -Severity Error }
           $r | Format-Table -AutoSize
           if ($r) { exit 1 }
       - name: Check mode runs on a machine with no install
@@ -71,16 +71,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply migrations and samples twice
         run: |
-          sudo apt-get install -y curl >/dev/null
-          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/ms.gpg
-          echo "deb [signed-by=/usr/share/keyrings/ms.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" | sudo tee /etc/apt/sources.list.d/ms.list
-          sudo apt-get update >/dev/null
-          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 >/dev/null
-          export PATH="$PATH:/opt/mssql-tools18/bin"
-          sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -b -Q "CREATE DATABASE FormRelay"
+          cid=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest | head -1)
+          docker cp db "$cid:/tmp/db"
+          sql() { docker exec "$cid" /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -b "$@"; }
+          sql -Q "CREATE DATABASE FormRelay"
           for pass in 1 2; do
             for f in db/0*.sql db/samples/*.sql; do
               echo "pass $pass: $f"
-              sqlcmd -C -S localhost -U sa -P 'Ci-Passw0rd!x' -d FormRelay -b -i "$f"
+              sql -d FormRelay -i "/tmp/$f"
             done
           done
