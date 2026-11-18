@@ -82,6 +82,8 @@ To try FormRelay with no real mail account, run a throwaway local mail catcher s
 & "C:\Program Files\FormRelay\FormRelay-Setup.ps1" update -PackagePath C:\temp\FormRelay-0.3.0-win-x64.zip   # offline
 ```
 
+**Updating from 0.1.0 or 0.1.1:** those versions have a bug that makes `update` fail (and roll back, harmlessly) with *"Cannot overwrite the item ... FormRelay-Setup.ps1 with itself"*. The update runs the *installed* installer, which can't be fixed from outside. Do the first update from the new release instead: download and extract the new `FormRelay-<version>-win-x64.zip`, double-click **its** `FormRelay-Setup.cmd`, and choose **2. Update**. That update installs the fixed installer, so every update after it works the normal way.
+
 What happens: version check (refuses a downgrade without `-Force`) → copy-only database backup (best effort; `-SkipDatabaseBackup` to skip) → config backup → stop service → new files → migrations → start → health check. If any step after stopping fails, the previous files are switched back in and started, and the script says so. The last three releases stay on disk; `rollback` flips back by hand.
 
 Migrations are forward-only and written to be backward compatible, so rolling the files back is safe. If you ever need the old *data*, restore the `.bak` named in the output.
