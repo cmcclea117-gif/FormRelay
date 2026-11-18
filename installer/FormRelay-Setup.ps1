@@ -13,6 +13,7 @@
       uninstall  Remove the service, firewall rule and program files. Keeps settings and database unless -RemoveData.
       graph-cert Create a Microsoft Graph sign-in certificate on this server (private key never leaves it).
       test-email Send a test message with the SMTP settings in config.json, and say plainly what went wrong if it fails.
+      set-email  Set up (or change, or turn off) outgoing email: asks the questions, saves them, restarts the service, sends a test.
 
     Where the files come from: a release zip unpacked next to this script (app\, db\, VERSION), a -PackagePath,
     or -Latest to download the newest GitHub release.
@@ -29,7 +30,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('install', 'update', 'check', 'rollback', 'uninstall', 'graph-cert', 'test-email')]
+    [ValidateSet('install', 'update', 'check', 'rollback', 'uninstall', 'graph-cert', 'test-email', 'set-email')]
     [string]$Mode = 'check',
 
     # Where the new version comes from
@@ -379,13 +380,14 @@ function Read-Secret([string]$Prompt) {
     $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
     try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
 }
-function Get-SmtpAnswers {
+function Get-SmtpAnswers([switch]$Change) {
     if ($SmtpPreset -eq 'none') { return }
     if (-not $SmtpPreset -and -not $SmtpHost) {
         if ($NonInteractive) { return }
         Write-Host ''
         Write-Host 'Outgoing email (how FormRelay sends the notifications):'
-        Write-Host '  1. Skip for now (forms work fine; add email later)'
+        if ($Change) { Write-Host '  1. Turn email off (notifications are held until a mail server is set)' }
+        else { Write-Host '  1. Skip for now (forms work fine; add email later)' }
         Write-Host '  2. Microsoft 365 / Office 365'
         Write-Host '  3. Gmail / Google Workspace'
         Write-Host '  4. My own mail server'
@@ -442,6 +444,81 @@ function Invoke-TestEmail {
         }
         throw "Could not send: $why`n$hint"
     } finally { $client.Dispose() }
+}
+
+# ----- change the email settings of an existing install
+# Returns $Config with only its Smtp (and Email:Provider) parts changed; $Smtp = $null removes the email settings.
+# Kept free of side effects so it can be tested on its own (tests\installer\Smtp-Config.Tests.ps1).
+function Update-SmtpConfig($Config, $Smtp) {
+    $has = { param($name) $null -ne $Config.PSObject.Properties[$name] }
+    if ($null -eq $Smtp) {
+        if (& $has 'Smtp') { [void]$Config.PSObject.Properties.Remove('Smtp') }
+        return $Config
+    }
+    $obj = [ordered]@{ Host = $Smtp.Host; Port = [int]$Smtp.Port; UseTls = [bool]$Smtp.UseTls }
+    if ($Smtp.User) { $obj.User = $Smtp.User; $obj.Password = $Smtp.Password }
+    if ($Smtp.From) { $obj.From = $Smtp.From }
+    $value = [pscustomobject]$obj
+    if (& $has 'Smtp') { $Config.Smtp = $value } else { $Config | Add-Member -NotePropertyName Smtp -NotePropertyValue $value }
+    if (& $has 'Email') {
+        if ($null -ne $Config.Email.PSObject.Properties['Provider']) { $Config.Email.Provider = 'Smtp' }
+        else { $Config.Email | Add-Member -NotePropertyName Provider -NotePropertyValue 'Smtp' }
+    } else { $Config | Add-Member -NotePropertyName Email -NotePropertyValue ([pscustomobject]@{ Provider = 'Smtp' }) }
+    return $Config
+}
+function Invoke-SetEmail {
+    if (-not (Test-Admin)) { throw 'Run this from an elevated (Run as administrator) prompt.' }
+    $cfgPath = Get-ConfigPath
+    $cfg = Read-Config
+    if (-not $cfg) { throw "No settings file at $cfgPath. Install FormRelay first." }
+    if ($NonInteractive -and -not $SmtpPreset -and -not $SmtpHost) {
+        throw 'With -NonInteractive, pass -SmtpPreset (none, microsoft365, gmail or custom) and, for custom, -SmtpHost and the other details.'
+    }
+
+    Write-Host ''
+    if ($cfg.Smtp -and $cfg.Smtp.Host) { Write-Host "Email is currently sent through $($cfg.Smtp.Host):$($cfg.Smtp.Port)." }
+    else { Write-Host 'Email is not set up yet.' }
+    if ("$($cfg.Email.Provider)" -eq 'Graph') { Write-Host 'This install is set to send through Microsoft Graph. Choosing an SMTP server will switch it to SMTP.' -ForegroundColor Yellow }
+
+    Get-SmtpAnswers -Change
+    $off = ($SmtpPreset -eq 'none') -or -not $SmtpHost
+    $lines = @()
+    if ($off) {
+        $lines += 'Turn outgoing email off. Notifications are held in the outbox (nothing is lost) until a mail server is set'
+    } else {
+        $lines += "Send email through ${SmtpHost}:${SmtpPort} (TLS: $([bool]$SmtpUseTls)), from $SmtpFrom"
+        if ($SmtpUser) { $lines += "Sign in to the mail server as $SmtpUser (the password is saved in the settings file)" }
+        $lines += 'Notifications that were waiting will go out'
+    }
+    $lines += "Change only the email part of $cfgPath, after keeping a backup copy"
+    $lines += 'Restart the FormRelay service (a few seconds)'
+    Confirm-Plan 'Email settings will be changed:' $lines
+
+    New-Item -ItemType Directory -Path (Join-Path $DataDir 'backups') -Force | Out-Null
+    Copy-Item $cfgPath (Join-Path (Join-Path $DataDir 'backups') ("config-{0:yyyyMMdd-HHmmss}.json" -f (Get-Date))) -Force
+    $smtp = if ($off) { $null } else { @{ Host = $SmtpHost; Port = $SmtpPort; UseTls = [bool]$SmtpUseTls; User = $SmtpUser; Password = $SmtpPassword; From = $SmtpFrom } }
+    $cfg = Update-SmtpConfig $cfg $smtp
+    $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $cfgPath -Encoding UTF8
+    if (-not (Read-Config)) { throw "The settings file could not be read back after saving. Your backup is in $(Join-Path $DataDir 'backups')." }
+    Write-Host "    saved $cfgPath"
+
+    Step 'Restarting the service'
+    Restart-Service $ServiceName
+    [void](Test-Health 60)
+    Write-Host '    healthy' -ForegroundColor Green
+    if ($off) { Write-Host 'Email is off. Run set-email again when you have a mail server.'; return }
+
+    $dest = $To
+    if (-not $dest -and -not $NonInteractive) { $dest = Ask 'Send a test email to (blank to skip)' '' }
+    if ($dest) {
+        $script:To = $dest
+        try { Invoke-TestEmail }
+        catch {
+            Write-Host "Your settings are saved, but the test email failed:`n$($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host 'Fix the details with set-email again, or look at them in config.json.'
+            exit 1
+        }
+    } else { Write-Host 'Done. To check it later: FormRelay-Setup.ps1 test-email -To you@example.com' }
 }
 
 # ----- settings file
@@ -761,6 +838,7 @@ try {
         'uninstall'  { Invoke-Uninstall }
         'graph-cert' { Invoke-GraphCert }
         'test-email' { Invoke-TestEmail }
+        'set-email'  { Invoke-SetEmail }
     }
 } catch {
     Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red

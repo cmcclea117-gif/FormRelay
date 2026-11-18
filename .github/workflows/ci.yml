@@ -48,6 +48,11 @@ jobs:
         run: |
           .\tests\installer\Install-Files.Tests.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: set-email config rewrite tests
+        shell: powershell
+        run: |
+          .\tests\installer\Smtp-Config.Tests.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Launcher parses and reaches the installer
         # cmd parses a whole parenthesized block before running it, so a stray ")" in an echo line breaks the launcher
         # even when that block would not run. The runner is already elevated, so this takes the "admin" path.

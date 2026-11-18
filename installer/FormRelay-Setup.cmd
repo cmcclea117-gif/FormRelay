@@ -45,11 +45,13 @@ echo   FormRelay setup
 echo   ---------------
 echo   1. Install FormRelay on this computer
 echo   2. Update an existing install to the latest release
-echo   3. Check an existing install (changes nothing)
-echo   4. Quit
+echo   3. Check an existing install, changes nothing
+echo   4. Set up or change outgoing email
+echo   5. Quit
 echo.
-choice /c 1234 /n /m "Choose 1-4: "
-if errorlevel 4 exit /b
+choice /c 12345 /n /m "Choose 1-5: "
+if errorlevel 5 exit /b
+if errorlevel 4 (set "SETUPARGS=set-email" & goto run)
 if errorlevel 3 (set "SETUPARGS=check" & goto run)
 if errorlevel 2 (set "SETUPARGS=update -Latest" & goto run)
 if errorlevel 1 (set "SETUPARGS=install" & goto run)
