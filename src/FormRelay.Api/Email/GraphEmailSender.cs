@@ -19,6 +19,10 @@ namespace FormRelay.Api.Email;
 /// </summary>
 public class GraphEmailSender(IConfiguration config, IHttpClientFactory http, ILogger<GraphEmailSender> log) : IEmailSender
 {
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(config["Graph:TenantId"]) && !string.IsNullOrWhiteSpace(config["Graph:ClientId"])
+        && !string.IsNullOrWhiteSpace(config["Graph:Sender"]);
+
     private static readonly string[] DelegatedScopes = ["https://graph.microsoft.com/Mail.Send"];
     private static readonly string[] AppScopes = ["https://graph.microsoft.com/.default"];
 

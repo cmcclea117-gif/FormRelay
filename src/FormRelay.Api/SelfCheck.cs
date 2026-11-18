@@ -90,7 +90,9 @@ public class SelfCheck(IConfiguration config, IHostEnvironment env)
             return new("Email (Graph)", "fail", "Certificate thumbprint not found in LocalMachine\\My.");
         }
 
-        var host = config["Smtp:Host"] ?? "localhost";
+        var host = config["Smtp:Host"];
+        if (string.IsNullOrWhiteSpace(host))
+            return new("Email (SMTP)", "warn", "Email is not set up yet. Forms work and submissions are saved; notification emails are held until a mail server is set (docs/install.md, Email).");
         var port = config.GetValue("Smtp:Port", 25);
         try
         {

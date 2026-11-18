@@ -50,6 +50,25 @@ public class SmtpEmailSenderTests
         public void Dispose() => _listener.Stop();
     }
 
+    private static IConfiguration Config(params (string Key, string? Value)[] pairs) =>
+        new ConfigurationBuilder().AddInMemoryCollection(pairs.ToDictionary(p => p.Key, p => p.Value)).Build();
+
+    [Theory]
+    [InlineData(null)]     // no Smtp section at all (what the installer writes when email is skipped)
+    [InlineData("")]       // an empty host (what 0.1.1 wrote when email was skipped)
+    [InlineData("   ")]
+    public async Task Without_a_mail_server_it_reports_not_configured_and_refuses_to_send(string? host)
+    {
+        var sender = new SmtpEmailSender(Config(("Smtp:Host", host), ("Smtp:Port", "25")));
+        Assert.False(sender.IsConfigured);
+        var e = await Assert.ThrowsAsync<InvalidOperationException>(() => sender.SendAsync("a@example.com", "s", "b", default));
+        Assert.Contains("mail server", e.Message);
+    }
+
+    [Fact]
+    public void With_a_host_it_is_configured() =>
+        Assert.True(new SmtpEmailSender(Config(("Smtp:Host", "mail.example.com"))).IsConfigured);
+
     [Fact]
     public async Task Sends_one_message_to_every_recipient()
     {
