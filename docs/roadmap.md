@@ -11,6 +11,14 @@ Done in the skeleton: Kestrel Windows-service hosting, installer (install, updat
 5. **Secrets in the UI.** Write connector secrets into `config.json` from the wizard (admin only, never echoed back), so no hand editing is needed.
 6. **Installer polish.** Smoke test on a hosted Windows runner (`installer-smoke.yml` exists as a manual workflow), MSI/winget wrapper if wanted, optional scheduled self-update task.
 
+## Repo hardening to come back to
+
+- [ ] **Require actions to be pinned to a full-length commit SHA** (Settings → Actions → General → "Require actions to be pinned to a full-length commit SHA"). Not on yet: the workflows use version tags like `actions/checkout@v7`. To turn it on: pin each `uses:` line in `.github/workflows/*.yml` to a SHA with the version in a comment (`uses: actions/checkout@<sha> # v7`), then flip the setting. Dependabot's `github-actions` ecosystem keeps SHA-pinned actions current.
+- [ ] **CodeQL code scanning** (Settings → Advanced Security → CodeQL analysis → Set up → Default). Free for public repos; covers C# and JavaScript/TypeScript.
+- [ ] **Grouped security updates** (optional), if Dependabot security PRs become noisy.
+- [ ] Decide whether to ignore Dependabot's major bumps for `@types/node` so it tracks the Node version CI uses (22).
+- [ ] Run a real install and update on a throwaway VM, then tag a patch release to exercise `update -Latest` and the release workflow with the new action versions.
+
 ## Not planned yet
 
 File attachments, CAPTCHA for public forms, a separate public host, DB Mail alerts.
