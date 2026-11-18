@@ -73,3 +73,7 @@ Add `db/NNN_name.sql` (next number), idempotent, safe to re-run, and **backward 
 ## Status
 
 Skeleton complete: app, installer, diagnostics, connector backend, CI/CD. Next: connector setup screens in the UI, a diagnostics page in the UI, an "update available" banner. See [docs/roadmap.md](docs/roadmap.md).
+
+## License
+
+[Apache-2.0](LICENSE). Use it, change it, share it. Contributions are welcome and are accepted under the same license.
