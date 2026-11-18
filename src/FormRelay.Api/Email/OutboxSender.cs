@@ -10,6 +10,7 @@ namespace FormRelay.Api.Email;
 public class OutboxSender(IConfiguration config, IEmailSender mail, ILogger<OutboxSender> log) : BackgroundService
 {
     private const int MaxAttempts = 5;
+    private bool warnedNotConfigured;
     private static readonly TimeSpan PollEvery = TimeSpan.FromSeconds(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -28,6 +29,14 @@ public class OutboxSender(IConfiguration config, IEmailSender mail, ILogger<Outb
 
     private async Task DrainAsync(string connStr, CancellationToken ct)
     {
+        // No mail server yet: leave everything queued. Nothing is lost, and it all goes out once email is set up.
+        if (!mail.IsConfigured)
+        {
+            if (!warnedNotConfigured) { log.LogWarning("Email is not set up, so notifications are being held. See docs/install.md (Email)."); warnedNotConfigured = true; }
+            return;
+        }
+        warnedNotConfigured = false;
+
         await using var db = new SqlConnection(connStr);
         var due = await db.QueryAsync<Row>("""
             SELECT TOP 20 Id, ToAddresses, Subject, Body, Attempts

@@ -7,14 +7,20 @@ namespace FormRelay.Api.Email;
 /// <summary>Anything that can send a plain-text email. Swap implementations without touching callers.</summary>
 public interface IEmailSender
 {
+    /// <summary>False until a mail server (or Graph app) is set up. While false, queued notifications are held, not failed.</summary>
+    bool IsConfigured { get; }
+
     Task SendAsync(string toAddresses, string subject, string body, CancellationToken ct);
 }
 
 /// <summary>Sends through any SMTP server (smtp4dev locally, a relay or Microsoft 365 later). Configured in the "Smtp" section.</summary>
 public class SmtpEmailSender(IConfiguration config) : IEmailSender
 {
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(config["Smtp:Host"]);
+
     public async Task SendAsync(string toAddresses, string subject, string body, CancellationToken ct)
     {
+        if (!IsConfigured) throw new InvalidOperationException("No mail server is set up (Smtp:Host is empty).");
         var s = config.GetSection("Smtp");
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(s["From"] ?? "forms@localhost"));
@@ -25,7 +31,7 @@ public class SmtpEmailSender(IConfiguration config) : IEmailSender
 
         using var client = new SmtpClient();
         var tls = s.GetValue("UseTls", false) ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
-        await client.ConnectAsync(s["Host"] ?? "localhost", s.GetValue("Port", 25), tls, ct);
+        await client.ConnectAsync(s["Host"]!, s.GetValue("Port", 25), tls, ct);
         if (!string.IsNullOrEmpty(s["User"]))
             await client.AuthenticateAsync(s["User"], s["Password"], ct);
         await client.SendAsync(new SmtpSendRequest(message), ct);   // MailKit 5 sends a request object, not a bare message

@@ -433,8 +433,14 @@ function Write-Config {
         Auth              = @{ BootstrapAdmins = @($AdminAccount) }
         Api               = @{ ReadKey = (New-RandomKey) }
         Email             = @{ Provider = 'Smtp' }
-        Smtp              = @{ Host = $SmtpHost; Port = $SmtpPort; UseTls = [bool]$SmtpUseTls; User = $SmtpUser; Password = $SmtpPassword; From = $SmtpFrom }
         Kestrel           = @{ Endpoints = $kestrel }
+    }
+    # Skipped email = no Smtp section at all (an empty host would count as a real, broken server).
+    if ($SmtpHost) {
+        $smtp = [ordered]@{ Host = $SmtpHost; Port = $SmtpPort; UseTls = [bool]$SmtpUseTls }
+        if ($SmtpUser) { $smtp.User = $SmtpUser; $smtp.Password = $SmtpPassword }
+        if ($SmtpFrom) { $smtp.From = $SmtpFrom }
+        $cfg.Smtp = $smtp
     }
     $cfg | ConvertTo-Json -Depth 8 | Set-Content -Path $cfgPath -Encoding UTF8
     Write-Host "    wrote $cfgPath"
@@ -505,8 +511,13 @@ function Invoke-Check {
 
     $http = Get-BaseUrl
     $port = ([Uri]$http).Port
-    $listening = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
-    Add-Check "Port $port" ($(if ($listening) { 'ok' } else { 'fail' })) ($(if ($listening) { 'listening' } else { 'nothing is listening (service stopped, or another program owns the port)' }))
+    # Ask the port itself (the Windows network-status API can come back empty even when the app is answering).
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $tcp.BeginConnect('127.0.0.1', $port, $null, $null)
+        $open = $iar.AsyncWaitHandle.WaitOne(3000) -and $tcp.Connected
+    } catch { $open = $false } finally { $tcp.Close() }
+    Add-Check "Port $port" ($(if ($open) { 'ok' } else { 'fail' })) ($(if ($open) { 'accepting connections' } else { 'nothing answers (service stopped, or another program owns the port)' }))
     $fw = Get-NetFirewallRule -DisplayName 'FormRelay' -ErrorAction SilentlyContinue
     Add-Check 'Firewall rule' ($(if ($fw) { 'ok' } else { 'warn' })) ($(if ($fw) { 'FormRelay inbound rule present' } else { 'no inbound rule; other computers may not reach the site' }))
 
@@ -564,7 +575,7 @@ function Invoke-Install {
     $base = if ($CertThumbprint) { "https://$HostName" + $(if ($HttpsPort -ne 443) { ":$HttpsPort" }) } else { "http://$HostName" + $(if ($HttpPort -ne 80) { ":$HttpPort" }) }
     Write-Host "FormRelay is running at $base" -ForegroundColor Green
     Write-Host "Sign in as $AdminAccount to become the first administrator, then remove Auth:BootstrapAdmins from $(Get-ConfigPath)."
-    Write-Host "Settings: $(Get-ConfigPath)    Logs: Event Viewer > Application > FormRelay    Update later: $InstallDir\FormRelay-Setup.ps1 update -Latest"
+    Write-Host "Settings: $(Get-ConfigPath)    Logs: Event Viewer > Application > FormRelay    Update later: $InstallDir\FormRelay-Setup.cmd (choose 2)"
     if ($code -ge 2) { exit 2 }
 }
 
