@@ -9,7 +9,17 @@ rem To skip the menu, pass a mode:   FormRelay-Setup.cmd update -Latest
 net session >nul 2>&1
 if errorlevel 1 (
   echo Asking Windows for administrator permission...
-  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs -WorkingDirectory '%~dp0'"
+  rem Start-Process rejects an empty -ArgumentList, so only pass one when there are arguments.
+  if "%~1"=="" (
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs -WorkingDirectory '%~dp0'"
+  ) else (
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs -WorkingDirectory '%~dp0'"
+  )
+  if errorlevel 1 (
+    echo.
+    echo Could not get administrator permission. Right-click this file and choose "Run as administrator".
+    pause
+  )
   exit /b
 )
 
