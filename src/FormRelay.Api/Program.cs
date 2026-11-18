@@ -19,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Runs as a Windows service when installed as one; a normal console app otherwise (dotnet run).
 builder.Host.UseWindowsService(o => o.ServiceName = "FormRelay");
+builder.WebHost.ConfigureKestrel(o => o.AddServerHeader = false);   // do not advertise the web server
 
 // Machine settings live outside the app folder, so updating the app never touches them. The installer writes this file.
 var dataDir = Environment.GetEnvironmentVariable("FORMRELAY_DATA")
@@ -69,6 +70,31 @@ builder.Services.AddRateLimiter(o =>
 var app = builder.Build();
 var audit = app.Services.GetRequiredService<AuditLog>();
 var userDir = app.Services.GetRequiredService<UserDirectory>();
+
+// Baseline response headers for every request.
+app.Use(async (ctx, next) =>
+{
+    // Set when the response starts, so they survive anything that clears headers earlier (such as the error handler below).
+    ctx.Response.OnStarting(() =>
+    {
+        var h = ctx.Response.Headers;
+        h["X-Content-Type-Options"] = "nosniff";
+        h["X-Frame-Options"] = "DENY";
+        h["Referrer-Policy"] = "same-origin";
+        h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+        if (ctx.Request.Path.StartsWithSegments("/api")) h["Cache-Control"] = "no-store";   // submissions must not sit in caches
+        return Task.CompletedTask;
+    });
+    await next();
+});
+
+// An unhandled error becomes a plain, generic 500 (never a stack trace), and still carries the headers above.
+if (!app.Environment.IsDevelopment())
+    app.UseExceptionHandler(errors => errors.Run(async ctx =>
+    {
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await ctx.Response.WriteAsJsonAsync(new { error = "Something went wrong. Check the server log." });
+    }));
 
 app.UseDefaultFiles();
 app.UseStaticFiles();   // serves the built React app from wwwroot
@@ -353,8 +379,10 @@ async Task<IResult> SubmitAsync(HttpContext ctx, string slug, JsonElement payloa
 
 app.MapGet("/api/health", async () =>
 {
+    // Anonymous, so it says only whether the app and its database answer. Version and database name are in the admin diagnostics.
     await using var db = Db();
-    return Results.Ok(new { status = "ok", db = await db.ExecuteScalarAsync<string>("SELECT DB_NAME()"), version = SelfCheck.Version });
+    await db.ExecuteScalarAsync<int>("SELECT 1");
+    return Results.Ok(new { status = "ok" });
 }).AllowAnonymous();
 
 // Public forms: no sign-in. Only forms created as "public" are reachable here, and only public-safe lists feed them.

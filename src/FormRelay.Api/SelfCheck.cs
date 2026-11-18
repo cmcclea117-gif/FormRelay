@@ -38,7 +38,8 @@ public class SelfCheck(IConfiguration config, IHostEnvironment env)
 
             var admins = await db.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.AppUsers WHERE Role = 'Admin' AND IsActive = 1");
             var bootstrap = config.GetSection("Auth:BootstrapAdmins").GetChildren().Any();
-            r.Add(admins > 0 ? new("Administrators", "ok", $"{admins} active")
+            r.Add(admins > 0 && bootstrap ? new("Administrators", "warn", $"{admins} active, but Auth:BootstrapAdmins is still set. Remove it from config.json now that a real admin exists.")
+                : admins > 0 ? new("Administrators", "ok", $"{admins} active")
                 : bootstrap ? new("Administrators", "warn", "None yet. The first bootstrap admin to sign in will become one.")
                 : new("Administrators", "fail", "No admin exists and Auth:BootstrapAdmins is empty. Nobody can manage the app."));
 

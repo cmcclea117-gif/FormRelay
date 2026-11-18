@@ -8,6 +8,16 @@ rem To skip the menu, pass a mode:   FormRelay-Setup.cmd update -Latest
 
 net session >nul 2>&1
 if errorlevel 1 (
+  echo.
+  echo   FormRelay setup needs administrator permission, because it installs a Windows service,
+  echo   opens a firewall port for your local network, and creates a database login.
+  echo   Before it changes anything it will show you exactly what it will do and ask you first.
+  echo.
+  echo   This file is plain text, so you can read it. It also lets the setup script in this folder
+  echo   run (Windows blocks downloaded scripts by default). Source: github.com/cmcclea117-gif/FormRelay
+  echo.
+  choice /c YN /n /m "Continue and ask Windows for permission? [Y/N] "
+  if errorlevel 2 exit /b
   echo Asking Windows for administrator permission...
   rem Start-Process rejects an empty -ArgumentList, so only pass one when there are arguments.
   if "%~1"=="" (

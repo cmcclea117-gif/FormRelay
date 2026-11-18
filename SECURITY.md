@@ -31,6 +31,8 @@ Not in scope: problems that need an already-compromised administrator account or
 
 ## Hardening your install
 
+What the installer changes, who can reach the app by default, and how to verify a download are in [docs/security.md](docs/security.md).
+
 The installer sets safe defaults. These are the things worth checking yourself (`FormRelay-Setup.ps1 check` covers several):
 
 - **Remove `Auth:BootstrapAdmins`** from `C:\ProgramData\FormRelay\config.json` once real admins exist.
