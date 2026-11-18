@@ -85,18 +85,17 @@ To try FormRelay with no real mail account, use a throwaway local mail catcher: 
 
 | How | Command or link | Notes |
 |---|---|---|
-| winget (simplest) | `winget install Rnwood.Smtp4dev` | Installs the console version. Open a **new** PowerShell window afterwards so the `smtp4dev` command is found. |
-| Docker | `docker run --rm -it -p 5000:80 -p 2525:25 rnwood/smtp4dev` | Web page on http://localhost:5000, mail server on port 2525. Skip step 2 (it is already running). |
-| Desktop app | [smtp4dev releases](https://github.com/rnwood/smtp4dev/releases) | A version with its own window. |
+| winget (simplest) | `winget install Rnwood.Smtp4dev` | Open a **new** PowerShell window afterwards. The command it adds is named `Rnwood.Smtp4dev` (not `smtp4dev`). |
+| Docker | `docker run --rm -it -p 5050:80 -p 2525:25 rnwood/smtp4dev` | Web page on http://localhost:5050, mail server on port 2525. Skip step 2 (it is already running). |
 | .NET tool | `dotnet tool install -g Rnwood.Smtp4dev` | Needs the .NET 10 SDK, which a FormRelay machine does not otherwise need. |
 
 **2. Start it** and leave the window open:
 
 ```powershell
-smtp4dev --smtpport=2525
+Rnwood.Smtp4dev --smtpport=2525 --urls=http://localhost:5050
 ```
 
-Port 2525 avoids clashing with anything already on port 25. When it starts it prints the address of its web page; open that address in your browser to see captured messages. (smtp4dev's default web address is not documented in one place, so read it from that startup output.)
+Port 2525 avoids clashing with anything already on port 25, and `--urls` puts the web page on port 5050 because smtp4dev's default, 5000, is often already taken (the error is "Failed to bind to address http://127.0.0.1:5000: address already in use"). When it prints `Now listening on: http://localhost:5050`, open that address in your browser to see captured messages. Windows may ask to allow changes the first time; if the window closes, run the command again.
 
 If Windows Firewall asks whether to allow smtp4dev on your networks, choose **Cancel** (or untick the boxes). That keeps other computers from reaching it, and FormRelay on the same PC still can, because a PC talking to itself over `localhost` is not blocked.
 
