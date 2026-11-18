@@ -298,9 +298,17 @@ function Install-Files([string]$PackageRoot, [string]$Version) {
     New-Item -ItemType Directory -Path $rel -Force | Out-Null
     Copy-Item (Join-Path $PackageRoot 'app\*') $rel -Recurse -Force
     Copy-Item (Join-Path $PackageRoot 'VERSION') $rel -Force
-    Copy-Item $PSCommandPath (Join-Path $InstallDir 'FormRelay-Setup.ps1') -Force   # so "update" is always at hand
+    # Keep the installer next to the program so "update" is always at hand, and take it from the NEW package so
+    # the installer itself updates too. (Copying the running script onto itself is an error, so skip that case.)
+    $self = Join-Path $PackageRoot 'FormRelay-Setup.ps1'
+    if (-not (Test-Path $self)) { $self = $PSCommandPath }
+    try { Copy-Item $self (Join-Path $InstallDir 'FormRelay-Setup.ps1') -Force }
+    catch { if ($_.Exception.Message -notmatch 'with itself') { throw } }   # same file under another spelling: nothing to do
     $launcher = Join-Path $PackageRoot 'FormRelay-Setup.cmd'
-    if (Test-Path $launcher) { Copy-Item $launcher (Join-Path $InstallDir 'FormRelay-Setup.cmd') -Force }
+    if (Test-Path $launcher) {
+        try { Copy-Item $launcher (Join-Path $InstallDir 'FormRelay-Setup.cmd') -Force }
+        catch { if ($_.Exception.Message -notmatch 'with itself') { throw } }
+    }
     return $rel
 }
 function Set-DataDirAcl {
