@@ -425,7 +425,7 @@ api.MapPost("/forms", async (HttpContext ctx, NewForm body) =>
     if (audience == "public" && !ctx.User.IsInRole("Admin"))
         return Results.Json(new { error = "Only an administrator can create a public form. Create it as internal and ask an admin to make it public." }, statusCode: 403);
     var creator = ctx.User.Identity?.Name;
-    if (!System.Text.RegularExpressions.Regex.IsMatch(body.Slug ?? "", "^[a-z0-9]+(-[a-z0-9]+)*$") || body.Slug!.Length > 100)
+    if (!Slugs.IsValid(body.Slug))
         return Results.BadRequest(new { error = "The web address can use lowercase letters, numbers and single dashes" });
     if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 200)
         return Results.BadRequest(new { error = "Give the form a name (200 characters at most)" });
@@ -606,7 +606,7 @@ api.MapGet("/lookups", async () =>
 // Create a list or replace a list's choices (and, optionally, whether public forms may use it). Administrators only.
 api.MapPut("/lookups/{name}", async (HttpContext ctx, string name, LookupBody body) =>
 {
-    if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-z0-9]+(-[a-z0-9]+)*$") || name.Length > 100)
+    if (!Slugs.IsValid(name))
         return Results.BadRequest(new { error = "A list's name can use lowercase letters, numbers and single dashes" });
     var items = (body.Items ?? []).Select(i => new { Value = (i.Value ?? "").Trim(), Label = (i.Label ?? i.Value ?? "").Trim() }).ToList();
     if (items.Count == 0) return Results.BadRequest(new { error = "A list needs at least one choice" });
